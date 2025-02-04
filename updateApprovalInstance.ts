@@ -9,7 +9,7 @@ const LARK_API_BASE = "https://open.feishu.cn/open-apis/approval/v4";
 const LARK_API_TENANT_ACCESS_TOKEN = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-const BATCH_UPDATE_COUNT = 5;// 每次处理50条
+const BATCH_UPDATE_COUNT = 50;// 每次处理50条
 
 
 // 获取 tenant_access_token 的函数
@@ -58,17 +58,45 @@ async function getApprovalInstanceDetail(instanceCode: string, tenant_access_tok
   return result.data;
 }
 
+// 提取并保存用户ID
+async function saveUserIds(taskList: any[]): Promise<void> {
+  if (!taskList || !taskList.length) return;
+
+  // 提取所有用户ID
+  const userIds = taskList
+    .filter(task => task.user_id)
+    .map(task => ({
+      user_id: task.user_id,
+      last_updated: new Date(Date.now())
+    }));
+
+  if (!userIds.length) return;
+
+  // 使用 upsert 插入新用户
+  const { error } = await supabase
+    .from("lark_users")
+    .upsert(userIds, { 
+      onConflict: "user_id",
+      ignoreDuplicates: true 
+    });
+
+  if (error) {
+    console.error("保存用户ID失败:", error);
+  }
+}
+
 export async function updateApprovalInstances(): Promise<Response> {
   console.log("开始更新审批实例...");
   const tenant_access_token = await getTenantAccessToken();
 
   // 获取需要更新的审批实例（状态为 PENDING 或 null）
   const { data: instances, error: queryError } = await supabase
-    .from("approval_instances")
+    .from("lark_approval_instances")
     .select("instance_code")
     .or("status.is.null,status.eq.PENDING")
     .order("last_updated", { ascending: true, nullsFirst: true })  // 未更新的记录在前，然后是最早更新的记录
     .limit(BATCH_UPDATE_COUNT);
+
 
   if (queryError) {
     console.error("查询待更新实例失败:", queryError);
@@ -91,7 +119,7 @@ export async function updateApprovalInstances(): Promise<Response> {
       
       // 更新数据库中的实例信息
       const { error: updateError } = await supabase
-        .from("approval_instances")
+        .from("lark_approval_instances")
         .update({
           department_id: instanceDetail.department_id,
           end_time: instanceDetail.end_time ? new Date(parseInt(instanceDetail.end_time)) : null,
@@ -99,6 +127,7 @@ export async function updateApprovalInstances(): Promise<Response> {
           open_id: instanceDetail.open_id,
           reverted: instanceDetail.reverted,
           serial_number: instanceDetail.serial_number,
+
           start_time: new Date(parseInt(instanceDetail.start_time)),
           status: instanceDetail.status,
           task_list: instanceDetail.task_list,
@@ -115,6 +144,8 @@ export async function updateApprovalInstances(): Promise<Response> {
         console.log(`[${i + 1}/${instances.length}] 实例 ${instance.instance_code} 更新成功`);
         updatedCount++;
       }
+
+      await saveUserIds(instanceDetail.task_list);
 
     } catch (error) {
       console.error(`[${i + 1}/${instances.length}] 处理实例 ${instance.instance_code} 时出错:`, error);

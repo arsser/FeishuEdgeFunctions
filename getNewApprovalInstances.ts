@@ -60,7 +60,7 @@ async function checkExistingInstances(
     console.log(`检查第 ${i/batchSize + 1} 批实例，数量: ${batch.length}`);
 
     const { data: existingInstances, error: queryError } = await supabase
-      .from("approval_instances")
+      .from("lark_approval_instances")
       .select("instance_code")
       .in("instance_code", batch);
 
@@ -82,7 +82,7 @@ export async function getNewApprovalInstances(): Promise<Response> {
 
   // 获取启用同步的审批流
   const { data: approvals, error: approvalError } = await supabase
-    .from("approvals")
+    .from("lark_approvals")
     .select("approval_code,name")
     .eq("enabled", true);
 
@@ -104,7 +104,7 @@ export async function getNewApprovalInstances(): Promise<Response> {
 
     // 获取数据库中该审批流最后同步的时间
     const { data: lastInstance, error: lastInstanceError } = await supabase
-      .from("approval_instances")
+      .from("lark_approval_instances")
       .select("start_time")
       .eq("approval_code", approvalCode)
       .order("start_time", { ascending: false })
@@ -211,7 +211,7 @@ export async function getNewApprovalInstances(): Promise<Response> {
       
       // 使用 upsert 并返回插入的记录
       const { data: insertedData, error } = await supabase
-        .from("approval_instances")
+        .from("lark_approval_instances")
         .upsert(allInstances, { 
           onConflict: "instance_code",
           ignoreDuplicates: true,
